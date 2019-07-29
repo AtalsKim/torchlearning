@@ -18,8 +18,13 @@ import numpy as np
 import xlrd
 import xlwt
 
-
-
+def simplot(trueDat, predDat):
+    fig = plt.figure()
+    # plt.plot(y.numpy())
+    plt.plot(trueDat, label='Turedata')
+    plt.plot(predDat, label='Predict', alpha=0.7)
+    plt.legend()
+    plt.show()
 
 def save2excel(data, xlname='Pred_Truth.xls', *ags):
     """
@@ -35,7 +40,7 @@ def save2excel(data, xlname='Pred_Truth.xls', *ags):
     workbook.save(xlsfilename)
 
 
-def loaddata (xlpath, length = -1, start = 1):
+def loaddata (xlpath, length=-1, start=1):
 
     # 打开文件
 
@@ -53,14 +58,14 @@ def loaddata (xlpath, length = -1, start = 1):
         inputs = sheet2.col_values(9, start_rowx=start)
         targets = sheet2.col_values(11, start_rowx=start)
     else:
-        inputs = sheet2.col_values(9, start_rowx=start, end_rowx=start+length-1)
-        targets = sheet2.col_values(11, start_rowx=start, end_rowx=start+length-1)
+        inputs = sheet2.col_values(9, start_rowx=start, end_rowx=start+length)
+        targets = sheet2.col_values(11, start_rowx=start, end_rowx=start+length)
     print('Datasetlens: ', len(inputs))
     return inputs, targets
 
 
 def SeriesGen(N):
-    x = torch.arange(0,N,0.01)
+    x = torch.arange(0, N, 0.01)
     return x, torch.sin(x)
  
     
@@ -117,29 +122,38 @@ class LSTMpred(nn.Module):
         outdat = self.hidden2out(lstm_out.view(len(seq),-1))
         return outdat
 
-model = LSTMpred(1,6).to('cuda')
+
+
+
+# device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+
+NEUNUM = 6
+model = LSTMpred(1, 6).to('cuda')
 loss_function = nn.MSELoss()
 optimizer = optim.SGD(model.parameters(), lr=0.01)
- 
-
-
 
 # 配置输入batch
-xlpath = r'E:\3 Matlab_Lib\2019-07-23基于XX学习的轨道不平顺生成方法 基于非IFFT的轨道不平顺幅值生成方法\SIX\BJ_GJC_W_6号线上行2014010601.xlsx '
+xlpath = r'excelTest37000.xlsx'
 # 12500~ 15000 有坏值
 
+x, y = loaddata(xlpath, length = -1, start=1)
+# plt.plot(x)
+# plt.plot(y)
 
 
-x, y = loaddata(xlpath, length = 50000, start=15000)
 # 后1000 留下测试
 testlen = 5000
 dat = trainDataGen(x, y, testlen)
 
+num_epochs = 100
+rloss = []
+print("NNumber:{}, TestLen:{}, Epochs:{}".format(NEUNUM, testlen, num_epochs))
+print("Epoch Start...")
 
-
-num_epochs = 50
 for epoch in range(num_epochs):
     print(epoch)
+    running_loss = 0.0
     for seq, outs in dat:
         seq = ToVariable(seq).cuda()
         seq = seq.view(len(seq), 1)
@@ -160,53 +174,45 @@ for epoch in range(num_epochs):
         # 更新参数
         optimizer.step()
         # 放里头一直更新
-        if epoch >  0:
-            print('Epoch[{}/{}], loss:{:.6f}'.format(epoch, num_epochs, loss.item()))
+        # statistics
+        running_loss += loss.item()
+    # 临时绘图
+
+    testx = ToVariable(x[-testlen:]).cuda()
+    predDat = model(testx).data.cpu()
+    predDat = predDat.numpy()
+    trueDat = y[-testlen:]
+    simplot(trueDat, predDat)
+    rloss.append(running_loss)
+    print('Epoch[{}/{}], loss:{:.6f}'.format(epoch, num_epochs, running_loss))
+
+    # 保存模型参数
+    # 保存模型
+    if epoch % 10 == 0:
+        torch.save(model.state_dict(), 'net_lstm_parameters0729.pkl')
+        print("> Parameters have been saved.")
               
-        
-        
- 
-    
-    
-    
-    
-    
-    
-    
-    
+
+
+# 最终测试
 predDat = model(ToVariable(x[-testlen:]).cuda()).data.cpu()
 predDat = np.array(predDat)
 trueDat = y[-testlen:]
 
 
-
-# 为什么不直接取/? 【-1】意思时只预测一个点？
-#for seq, trueVal in dat[-testlen:]:
-#    seq = ToVariable(seq).cuda()
-#    trueVal = ToVariable(trueVal).cuda()
-##    x = x.cuda()
-#    model = model.cuda()
-#    data = model(seq)[-1].data.cpu()
-#    predDat.append(data.numpy()[0])
-#    trueDat.append()
- 
- 
 fig = plt.figure()
-#plt.plot(y.numpy())
 plt.plot(trueDat, label= 'Turedata')
 plt.plot(predDat, label= 'Predict', alpha=0.4)
 plt.legend()
 plt.show()
-
-
+# 保存至EXCEL
 save2excel([trueDat, predDat], xlname='Pred_Truth2.xls')
 
 
 
 
 
-# 保存模型
-torch.save(model.state_dict(), 'net_lstm_parameters2.pkl')
+
 # torch.save(model, 'net.pkl') # 全部网络
 
 
@@ -216,11 +222,7 @@ torch.save(model.state_dict(), 'net_lstm_parameters2.pkl')
 
 
 
-# 恢复之前参数
-#checkpoint = torch.load(dir)
-#model.load_state_dict(checkpoint['net'])  # 推荐
-#optimizer.load_state_dict(checkpoint['optimizer'])
-#start_epoch = checkpoint['epoch'] + 1
+
 
 
 # 挑选新的测试集
