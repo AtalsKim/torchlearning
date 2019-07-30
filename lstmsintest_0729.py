@@ -152,7 +152,7 @@ class LSTMpred(nn.Module):
         return outdat
 
 TESTMOD = True
-NEUNUM = 64
+NEUNUM = 10
 model = LSTMpred(1, NEUNUM).to('cuda')
 loss_function = nn.MSELoss()
 optimizer = optim.SGD(model.parameters(), lr=0.01)
@@ -162,7 +162,8 @@ xlpath = r'excelTest37000.xlsx'
 x, y = loaddata(xlpath, length = -1, start=1)
 # 后1000 留下测试
 testlen = 2000
-dat = trainDataGen(x, y, testlen, step=4)
+step = 40
+dat = trainDataGen(x, y, testlen, step=step)
 num_epochs = 500
 rloss = []
 print("NNumber:{}, TestLen:{}, Epochs:{}".format(NEUNUM, testlen, num_epochs))
@@ -218,7 +219,7 @@ for epoch in range(num_epochs):
     # 保存模型参数
     # 保存模型
     if epoch % 10 == 0:
-        pklname = 'param_N{}_Len{}_Ep{}.pkl'.format(NEUNUM,testlen,num_epochs)
+        pklname = 'param_N{}_Len{}_Ep{}_St{}.pkl'.format(NEUNUM,testlen,num_epochs,step)
         torch.save(model.state_dict(), pklname)
         print("> Parameters have been saved.")
               
