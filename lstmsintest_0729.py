@@ -151,7 +151,7 @@ class LSTMpred(nn.Module):
         outdat = self.hidden2out(lstm_out.view(len(seq),-1))
         return outdat
 
-TESTMOD = True
+TESTMOD = False
 NEUNUM = 10
 model = LSTMpred(1, NEUNUM).to('cuda')
 loss_function = nn.MSELoss()
@@ -169,7 +169,7 @@ rloss = []
 print("NNumber:{}, TestLen:{}, Epochs:{}".format(NEUNUM, testlen, num_epochs))
 
 
-# 测试模块
+# 测试模块， 会假死
 if TESTMOD:
     tlen = 10000
     tstart = 10000
