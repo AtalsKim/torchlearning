@@ -6,7 +6,7 @@ Created on Fri Jul 26 20:08:52 2019
 """
 
 # https://blog.csdn.net/hustchenze/article/details/78696771
-
+# device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 import torch
 import torch.nn as nn
@@ -17,6 +17,31 @@ import matplotlib.pyplot as plt
 import numpy as np
 import xlrd
 import xlwt
+import os
+import tkinter as tk
+import tkinter.filedialog
+import sys
+
+
+def postPlot(model, x, y):
+
+    root = tk.Tk()
+    root.withdraw()
+    filepath = tkinter.filedialog.askopenfilename(filetypes=[('NET_files', '.pkl')])
+
+    checkpoint = torch.load(filepath)
+    # 重新构造
+    # 可能有点问题
+    NEUNUM = len(checkpoint['lstm.weight_hh_l0'][0])
+    tmodel = LSTMpred(1, NEUNUM).to('cuda')
+    tmodel.load_state_dict(checkpoint)
+    # plot 都在cpu空间
+    testx = ToVariable(x).to('cuda')
+    predDat = tmodel(testx).data.to('cpu').numpy()
+    simplot(y, predDat)
+    return y, predDat
+
+
 
 def simplot(trueDat, predDat):
     fig = plt.figure()
@@ -25,8 +50,9 @@ def simplot(trueDat, predDat):
     plt.plot(predDat, label='Predict', alpha=0.7)
     plt.legend()
     plt.show()
+    return None
 
-def save2excel(data, xlname='Pred_Truth.xls', *ags):
+def save2excel(data, xlname='Pred_Truth.xls'):
     """
     data: [array(predict),array(Truth)]
     """
@@ -38,6 +64,9 @@ def save2excel(data, xlname='Pred_Truth.xls', *ags):
         for i in range(len(data[j])):    
             wsheet.write(i,j, label = float(data[j][i]))
     workbook.save(xlsfilename)
+    print("Excel out finished.")
+    print(os.path.abspath(xlname))
+    return None
 
 
 def loaddata (xlpath, length=-1, start=1):
@@ -122,35 +151,35 @@ class LSTMpred(nn.Module):
         outdat = self.hidden2out(lstm_out.view(len(seq),-1))
         return outdat
 
-
-
-
-# device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-
-NEUNUM = 6
-model = LSTMpred(1, 6).to('cuda')
+TESTMOD = True
+NEUNUM = 64
+model = LSTMpred(1, NEUNUM).to('cuda')
 loss_function = nn.MSELoss()
 optimizer = optim.SGD(model.parameters(), lr=0.01)
-
 # 配置输入batch
 xlpath = r'excelTest37000.xlsx'
 # 12500~ 15000 有坏值
-
 x, y = loaddata(xlpath, length = -1, start=1)
-# plt.plot(x)
-# plt.plot(y)
-
-
 # 后1000 留下测试
-testlen = 5000
-dat = trainDataGen(x, y, testlen)
-
-num_epochs = 100
+testlen = 2000
+dat = trainDataGen(x, y, testlen, step=4)
+num_epochs = 500
 rloss = []
 print("NNumber:{}, TestLen:{}, Epochs:{}".format(NEUNUM, testlen, num_epochs))
-print("Epoch Start...")
 
+
+# 测试模块
+if TESTMOD:
+    tlen = 10000
+    tstart = 10000
+    x = x[tstart:tstart+tlen]
+    y = y[tstart:tstart+tlen]
+    trueDat, predDat = postPlot(model, x, y)
+    save2excel([trueDat, predDat], xlname='Pred_Truth2.xls')
+    quit()
+
+
+print("Epoch Start...")
 for epoch in range(num_epochs):
     print(epoch)
     running_loss = 0.0
@@ -189,7 +218,8 @@ for epoch in range(num_epochs):
     # 保存模型参数
     # 保存模型
     if epoch % 10 == 0:
-        torch.save(model.state_dict(), 'net_lstm_parameters0729.pkl')
+        pklname = 'param_N{}_Len{}_Ep{}.pkl'.format(NEUNUM,testlen,num_epochs)
+        torch.save(model.state_dict(), pklname)
         print("> Parameters have been saved.")
               
 
