@@ -6,6 +6,7 @@ Description: 只读取，绘图比较，输出excel、给matlab
 Modification: 因为还要输net参数，直接在主函数里调用比较方便
 不知道为什么debug可以运行，换一台电脑也可以
 但是直接运行就不行
+假死原因：simplot(y, predDat)
 
 '''
 
@@ -39,17 +40,24 @@ def postPlot(x, y):
     testx = ToVariable(x).to('cuda')
     predDat = tmodel(testx).data.to('cpu').numpy()
     simplot(y, predDat)
+    print('SimplotEnd2')
     return y, predDat
 
 
 def simplot(trueDat, predDat):
-    fig = plt.figure()
+
+    plt.figure()
     # plt.plot(y.numpy())
     plt.plot(trueDat, label='Turedata')
     plt.plot(predDat, label='Predict', alpha=0.7)
     plt.legend()
-    plt.show()
-    return None
+
+    # plt.show()
+    plt.pause(5)
+    plt.draw()
+
+
+    print('SimplotEnd1')
 
 
 def save2excel(data, xlname='Pred_Truth.xls'):
@@ -66,7 +74,6 @@ def save2excel(data, xlname='Pred_Truth.xls'):
     workbook.save(xlsfilename)
     print("Excel out finished.")
     print(os.path.abspath(xlname))
-    return None
 
 
 def loaddata(xlpath, length=-1, start=1):
@@ -160,6 +167,7 @@ def main():
     x = x[tstart:tstart+tlen]
     y = y[tstart:tstart+tlen]
     trueDat, predDat = postPlot(x, y)
+    print('SimplotEnd3')
     save2excel([trueDat, predDat], xlname='Pred_Truth_PyPost.xls')
 if __name__ == '__main__':
     main()
