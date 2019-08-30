@@ -158,16 +158,20 @@ class LSTMpred(nn.Module):
 
 def main():
     # 配置输入batch
-    xlpath = r'excelTest37000.xlsx'
-    # 12500~ 15000 有坏值
-    x, y = loaddata(xlpath, length=-1, start=1)
+    # xlpath = r'excelTest37000.xlsx'
+    # xlpath = r'Irr_1000_AM6.xls'
+    # xlpath = r'Irr_1000_GML'
+    xlpath = r'Irr_10000_AM6.xls'
 
-    tlen = 10000
-    tstart = 10000
+    # 12500~ 15000 有坏值
+    x, y = loaddata(xlpath+'.xls', length=-1, start=1)
+
+    tlen = len(x)
+    tstart = 0
     x = x[tstart:tstart+tlen]
     y = y[tstart:tstart+tlen]
     trueDat, predDat = postPlot(x, y)
     print('SimplotEnd3')
-    save2excel([trueDat, predDat], xlname='Pred_Truth_PyPost.xls')
+    save2excel([trueDat, predDat], xlname=xlpath+'_PyPost.xls')
 if __name__ == '__main__':
     main()
