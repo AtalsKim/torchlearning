@@ -48,7 +48,7 @@ def simplot(trueDat, predDat):
 
     plt.figure()
     # plt.plot(y.numpy())
-    plt.plot(trueDat, label='Turedata')
+    plt.plot(trueDat, label='Truedata')
     plt.plot(predDat, label='Predict', alpha=0.7)
     plt.legend()
 
@@ -161,7 +161,7 @@ def main():
     # xlpath = r'excelTest37000.xlsx'
     # xlpath = r'Irr_1000_AM6.xls'
     # xlpath = r'Irr_1000_GML'
-    xlpath = r'Irr_10000_AM6.xls'
+    xlpath = r'Irr_10000_AM6_GD'
 
     # 12500~ 15000 有坏值
     x, y = loaddata(xlpath+'.xls', length=-1, start=1)
