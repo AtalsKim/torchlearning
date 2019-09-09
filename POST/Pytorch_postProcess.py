@@ -20,16 +20,20 @@ import numpy as np
 import xlrd
 import xlwt
 import os
-import tkinter as tk
-import tkinter.filedialog
 import sys
 
 
-def postPlot(x, y):
+def uigetpath(fileend = '.pkl'):
+    import tkinter as tk
+    import tkinter.filedialog
     root = tk.Tk()
     root.withdraw()
-    filepath = tkinter.filedialog.askopenfilename(filetypes=[('NET_files', '.pkl')])
+    filepath = tkinter.filedialog.askopenfilename(filetypes=[('NET_files', fileend)])
+    return filepath
 
+def postPlot(x, y):
+
+    filepath = uigetpath(fileend = '.pkl')
     checkpoint = torch.load(filepath)
     # 重新构造
     # 可能有点问题
@@ -161,10 +165,10 @@ def main():
     # xlpath = r'excelTest37000.xlsx'
     # xlpath = r'Irr_1000_AM6.xls'
     # xlpath = r'Irr_1000_GML'
-    xlpath = r'测试集03074000'
+    xlpath = uigetpath(fileend = '.xls')
 
     # 12500~ 15000 有坏值
-    x, y = loaddata(xlpath+'.xls', length=-1, start=1)
+    x, y = loaddata(xlpath, length=-1, start=1)
 
     tlen = len(x)
     tstart = 0
@@ -172,6 +176,9 @@ def main():
     y = y[tstart:tstart+tlen]
     trueDat, predDat = postPlot(x, y)
     print('SimplotEnd3')
+
     save2excel([trueDat, predDat], xlname=xlpath+'_PyPost.xls')
+    print('True','|Predict')
+
 if __name__ == '__main__':
     main()
