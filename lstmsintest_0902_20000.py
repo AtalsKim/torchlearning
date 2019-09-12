@@ -24,6 +24,10 @@ import tkinter.filedialog
 import sys
 
 
+
+# device = torch.device('cuda:0')
+
+
 def postPlot(model, x, y):
 
     root = tk.Tk()
@@ -41,8 +45,6 @@ def postPlot(model, x, y):
     predDat = tmodel(testx).data.to('cpu').numpy()
     simplot(y, predDat)
     return y, predDat
-
-
 
 def simplot(trueDat, predDat):
     fig = plt.figure()
@@ -73,7 +75,6 @@ def save2excel(data, xlname='Pred_Truth.xls'):
 def loaddata (xlpath, length=-1, start=1):
 
     # 打开文件
-
     workbook = xlrd.open_workbook(xlpath)
     # 获取所有sheet
     print(workbook.sheet_names()) # [u'sheet1', u'sheet2']
@@ -152,21 +153,30 @@ class LSTMpred(nn.Module):
         outdat = self.hidden2out(lstm_out.view(len(seq),-1))
         return outdat
 
+
+
+###
+# 算是主函数
+###
+
 TESTMOD = False
 NEUNUM = 10
 model = LSTMpred(1, NEUNUM).to('cuda')
+# optimizer = optim.SGD(model.parameters(), lr=0.01)
+# 改用Adam
+optimizer = optim.Adam(model.parameters(), lr=0.001)
 loss_function = nn.MSELoss()
-optimizer = optim.SGD(model.parameters(), lr=0.01)
 # 配置输入batch
 xlpath = r'excelTest37000.xlsx'
 # 12500~ 15000 有坏值
 x, y = loaddata(xlpath, length = -1, start=1)
 # 后1000 留下测试
-testlen = 20000
+testlen = 20
 step = 4
 dat = trainDataGen(x, y, testlen, step=step)
 num_epochs = 500
 rloss = []
+Tloss_list = []
 print("NNumber:{}, TestLen:{}, Epochs:{}".format(NEUNUM, testlen, num_epochs))
 
 
@@ -208,19 +218,34 @@ for epoch in range(num_epochs):
         # statistics
         running_loss += loss.item()
     # 临时绘图
-
     testx = ToVariable(x[-testlen:]).cuda()
     predDat = model(testx).data.cpu()
     predDat = predDat.numpy()
     trueDat = y[-testlen:]
-    simplot(trueDat, predDat)
+    # 测试误差
+    Tloss_truDat = np.array(trueDat)
+    Testloss = loss_function(ToVariable(predDat), ToVariable(trueDat).view(len(trueDat), 1))
+    # 简单绘图
+    # simplot(trueDat, predDat)
     rloss.append(running_loss)
-    print('Epoch[{}/{}], loss:{:.6f}'.format(epoch, num_epochs, running_loss))
+    Tloss_list.append(Testloss)
+    print('Epoch[{}/{}], loss:{:.6f}， Tloss:{:.6f}'.format(epoch, num_epochs, running_loss,Testloss))
+
+
+    # # 计算与测试集的误差
+    # predDat = model(ToVariable(x[-testlen:]).cuda()).data.cpu()
+    # predDat = np.array(predDat)
+    # trueDat = y[-testlen:]
+    # Testloss = loss_function(modout, outs)
+
 
     # 保存模型参数
     # 保存模型
     if epoch % 10 == 0:
         pklname = 'param_N{}_Len{}_Ep{}_St{}.pkl'.format(NEUNUM,testlen,num_epochs,step)
+        # 保存误差列表
+        save2excel([rloss], xlname='LossHist.xls')
+        save2excel([Tloss_list], xlname='TestLossHist.xls')
         torch.save(model.state_dict(), pklname)
         print("> Parameters have been saved.")
               
@@ -231,45 +256,11 @@ predDat = model(ToVariable(x[-testlen:]).cuda()).data.cpu()
 predDat = np.array(predDat)
 trueDat = y[-testlen:]
 
-
 fig = plt.figure()
 plt.plot(trueDat, label= 'Turedata')
 plt.plot(predDat, label= 'Predict', alpha=0.4)
 plt.legend()
 plt.show()
 # 保存至EXCEL
-save2excel([trueDat, predDat], xlname='Pred_Truth2.xls')
-
-
-
-
-
-
-# torch.save(model, 'net.pkl') # 全部网络
-
-
-
-
-
-
-
-
-
-
-
-# 挑选新的测试集
-#x2, y2 = loaddata(xlpath, length = 5000, start = 20000)
-## 后1000 留下测试
-#testlen = 500
-#dat = trainDataGen(x2, y2, testlen)
-#predDat2 = []
-#for seq, trueVal in dat:
-#    seq = ToVariable(seq).cuda()
-#    trueVal = ToVariable(trueVal).cuda()
-##    x = x.cuda()
-#    model = model.cuda()
-#    data = model(seq)[-1].data.cpu()
-#    predDat2.append(data.numpy()[0])
-# 
-## 输出
-#save2excel([y2[:-501], predDat2], xlname='Pred_Truth2.xls')
+# save2excel([trueDat, predDat], xlname='Pred_Truth2.xls')
+save2excel([trueDat, predDat], xlname='Final_lstm_TestData.xls')
