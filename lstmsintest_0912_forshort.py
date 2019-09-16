@@ -134,12 +134,12 @@ def ToVariable(x):
 
 class LSTMpred(nn.Module):
  
-    def __init__(self,input_size, hidden_dim, num_layer = 1):
+    def __init__(self,input_size, hidden_dim, batchsize, num_layer = 1):
         super(LSTMpred,self).__init__()
         self.input_dim = input_size
         self.hidden_dim = hidden_dim
         self.num_layer = num_layer
-        self.batchsize = 1
+        self.batchsize = batchsize
         # self.hidden = self.init_hidden()
         # 数据归一化操作
         # self.bn1 = nn.BatchNorm1d(num_features=320)
@@ -166,35 +166,37 @@ class LSTMpred(nn.Module):
         # input >>> [seq_len, batchsize, input_size]
         # out >>> [seq_len, bathchsize, hiddenlayernum]
         # h,c >>> [层数，batchsize, hiddensize]
-        lstm_out, self.hidden = self.lstm(seq.view(len(seq), self.batchsize, -1), self.hidden)
+        lstm_out, self.hidden = self.lstm(seq.view(int(len(seq)/self.batchsize), self.batchsize, 1), self.hidden)
         # 是不是多对一的话留下最后结果
-        outdat = self.hidden2out(lstm_out[-1].view(self.batchsize, -1))
-        return outdat.view(-1)
-        # outdat = self.hidden2out(lstm_out.view(len(seq), -1))
-        # return outdat
+        # outdat = self.hidden2out(lstm_out[-1].view(self.batchsize, -1))
+        # return outdat.view(-1)
+        outdat = self.hidden2out(lstm_out.view(len(seq), -1))
+        return outdat
 
 
 
 def main():
 
     TESTMOD = False
-    NEUNUM = 16
-    NLAYER = 2
-    testlen = 32
+    NEUNUM = 20
+    NLAYER = 4
+    # batchsize
+    testlen = 50
     step = 4
-    num_epochs = 500
+    num_epochs = 5000
+
     # inputsize 这个应该是指特征的维度，所以是1
-    model = LSTMpred(1, NEUNUM, NLAYER).to('cuda')
+    model = LSTMpred(1, NEUNUM, testlen, NLAYER).to('cuda')
     # 改用Adam
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     loss_function = nn.MSELoss()
     # 配置输入batch
     # xlpath = r'excelTest37000.xlsx'
-    # xlpath = r'Prep_DATA0915.xlsx'
-    xlpath = r'SINETEST1000.xls'
+    xlpath = r'Prep_DATA0915.xlsx'
+    # xlpath = r'SINETEST1000.xls'
     # 12500~ 15000 有坏值
-    x, y = loaddata(xlpath, length = -1, start=1)
-    trainlen = round(len(x)*0.7)
+    x, y = loaddata(xlpath, length = 100000, start=1)
+    trainlen = round(len(x)*0.8)
     # 后1000 留下测试
 
     dat = trainDataGen(x[:trainlen], y[:trainlen], testlen, step=step)
@@ -222,35 +224,36 @@ def main():
 
 
     print("Epoch Start...")
+
+    running_loss = 0.0
     for epoch in range(num_epochs):
         # print(epoch, end='')
-        running_loss = 0.0
-        for seq, outs in dat:
-            seq = ToVariable(seq).cuda()
-            # 1,1,teslen
-            seq = seq.view(len(seq), 1)
-            outs = ToVariable(outs).cuda()
-            outs = outs.view(len(outs), 1)
-            # 由于输入的时array 改为 a x 1 的格式
-            # 修改完之后有明显降低
-            #outs = torch.from_numpy(np.array([outs]))
 
-            # 清除网络状态
-            optimizer.zero_grad()
-            # 重新初始化隐藏层数据
-            model.hidden = model.init_hidden()
+        seq = x
+        outs = y
+        seq = ToVariable(seq).cuda()
+        seq = seq.view(len(seq), 1)
+        outs = ToVariable(outs).cuda()
+        outs = outs.view(len(outs), 1)
+        # 由于输入的时array 改为 a x 1 的格式
+        # 修改完之后有明显降低
+        #outs = torch.from_numpy(np.array([outs]))
 
-
-            modout = model(seq).cuda()
-            loss = loss_function(modout, outs)
-            # 反向传播求梯度
-            loss.backward()
-            # 更新参数
-            optimizer.step()
-            # 放里头一直更新
-            # statistics
-            # running_loss += loss.item()
-            running_loss = loss.item()
+        # 清除网络状态
+        model.zero_grad()
+        # optimizer.zero_grad()
+        # 重新初始化隐藏层数据
+        model.hidden = model.init_hidden()
+        modout = model(seq).cuda()
+        loss = loss_function(modout, outs)
+        # 反向传播求梯度
+        loss.backward()
+        # 更新参数
+        optimizer.step()
+        # 放里头一直更新
+        # statistics
+        # running_loss += loss.item()
+        running_loss = loss.item()
         # 临时绘图
 
         # 测试区段数据
@@ -268,8 +271,9 @@ def main():
             Testloss0 = loss_function(ToVariable(predDat), ToVariable(trueDat).view(len(trueDat), 1))
             Testloss += Testloss0
         Testloss = Testloss/testdatalen
-        # 简单绘图
-        # simplot(trueDat, predDat)
+        # # 简单绘图
+        # # simplot(trueDat, predDat)
+
         rloss.append(running_loss)
         Tloss_list.append(Testloss)
         print(' Epoch[{}/{}], loss:{:.6f}， Tloss:{:.6f}'.format(epoch, num_epochs, running_loss,Testloss))
@@ -285,10 +289,10 @@ def main():
         # 保存模型参数
         # 保存模型
         if epoch % 10 == 0:
-            pklname = 'param_N{}_Len{}_Ep{}_St{}0916.pkl'.format(NEUNUM,testlen,num_epochs,step)
+            pklname = 'param_N{}_Len{}_Ep{}_St{}0916change.pkl'.format(NEUNUM,testlen,num_epochs,step)
             # 保存误差列表
             try:
-                save2excel([rloss, Tloss_list], xlname='LossHistr1t20912.xls')
+                save2excel([rloss, Tloss_list], xlname='LossHistr1t20916.xls')
             except:
                 print('Loss saving failed.')
             # save2excel([Tloss_list], xlname='TestLossHist0912.xls')
@@ -298,9 +302,9 @@ def main():
 
 
     # 最终测试
-    predDat = model(ToVariable(x[-testlen:]).cuda()).data.cpu()
+    predDat = model(ToVariable(x[-2*testlen:]).cuda()).data.cpu()
     predDat = np.array(predDat)
-    trueDat = y[-testlen:]
+    trueDat = y[-2*testlen:]
     fig = plt.figure()
     plt.plot(trueDat, label= 'Turedata')
     plt.plot(predDat, label= 'Predict', alpha=0.4)
@@ -308,7 +312,7 @@ def main():
     plt.show()
     # 保存至EXCEL
     # save2excel([trueDat, predDat], xlname='Pred_Truth2.xls')
-    save2excel([trueDat, predDat], xlname='Final_lstm_TestData0912.xls')
+    save2excel([trueDat, predDat], xlname='Final_lstm_TestData0916.xls')
 
 
 if __name__ == '__main__':
