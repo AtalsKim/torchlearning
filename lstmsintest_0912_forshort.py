@@ -21,6 +21,7 @@ import os
 import tkinter as tk
 import tkinter.filedialog
 import sys
+import visdom
 
 
 
@@ -226,6 +227,11 @@ def main():
     print("Epoch Start...")
 
     running_loss = 0.0
+
+
+    # 使用VISDOM 进行绘图
+    vis = visdom.Visdom(env='PytorchTest')
+
     for epoch in range(num_epochs):
         # print(epoch, end='')
 
@@ -270,12 +276,46 @@ def main():
             Tloss_truDat = np.array(trueDat)
             Testloss0 = loss_function(ToVariable(predDat), ToVariable(trueDat).view(len(trueDat), 1))
             Testloss += Testloss0
+            # 绘制最后一步的测试
+            if t1 == testdata[-1]:
+                vis.line(Y=trueDat, win='trueDat',
+                         opts=dict(
+                             legend=['trueDat'],
+                             title='trueDat'
+                         ))
+                vis.line(Y=predDat, win='predDat',
+                         opts=dict(
+                             legend=['predDat'],
+                             title='predDat'
+                         ))
         Testloss = Testloss/testdatalen
+
+
+
+
+
+
         # # 简单绘图
         # # simplot(trueDat, predDat)
 
+
+
         rloss.append(running_loss)
         Tloss_list.append(Testloss)
+
+        vis.line(Y=rloss, win='model Loss',
+                 opts=dict(
+                     legend = ['Training Loss'],
+                     title = 'Training Loss'
+                 ))
+        vis.line(Y=Tloss_list, win='Test Loss',
+                 opts=dict(
+                     legend = ['Test Loss'],
+                     title = 'Test Loss'
+                 ))
+
+
+
         print(' Epoch[{}/{}], loss:{:.6f}， Tloss:{:.6f}'.format(epoch, num_epochs, running_loss,Testloss))
 
 
