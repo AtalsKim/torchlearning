@@ -139,12 +139,13 @@ class LSTMpred(nn.Module):
         self.input_dim = input_size
         self.hidden_dim = hidden_dim
         self.num_layer = num_layer
+        self.hidden = self.init_hidden()
         # 数据归一化操作
         # self.bn1 = nn.BatchNorm1d(num_features=320)
         # 增加DROPout 避免过拟合
         self.lstm = nn.LSTM(input_size, hidden_dim, num_layer, dropout=0.5)
-        self.hidden2out = nn.Linear(hidden_dim, 1)
-        self.hidden = self.init_hidden()
+        # out 为什么是1？？？
+        # self.hidden2out = nn.Linear(hidden_dim, 1)
 
 
     # 第一个求导应该不用的吧
@@ -152,11 +153,16 @@ class LSTMpred(nn.Module):
         return (Variable(torch.zeros(self.num_layer, 1, self.hidden_dim)).cuda(),
                 Variable(torch.zeros(self.num_layer, 1, self.hidden_dim)).cuda())
 
-    def forward(self,seq):
-        lstm_out, self.hidden = self.lstm(
-            seq.view(len(seq), 1, -1), self.hidden)
-        outdat = self.hidden2out(lstm_out.view(len(seq),-1))
-        return outdat
+    def forward(self, seq):
+        # 三个句子，10个单词，1000
+        # input >>> [seq, batch, vec]
+        # hc维度应该是 [层数，batch, hiddensize]
+        # out 维度应该是[单词, batch, hiddensize]
+        # lstm_out, self.hidden = self.lstm(seq.view(len(seq), 1, -1), self.hidden)
+        # seq =1  batch 1 vec 200
+        lstm_out, self.hidden = self.lstm(seq.view(1, 1, len(seq)), self.hidden)
+        # outdat = self.hidden2out(lstm_out.view(len(seq),-1))
+        return lstm_out
 
 
 
@@ -168,12 +174,15 @@ class LSTMpred(nn.Module):
 
 
 TESTMOD = False
-NEUNUM = 16
+NEUNUM = 128
 NLAYER = 2
-model = LSTMpred(1, NEUNUM, NLAYER).to('cuda')
+testlen = 200
+step = 4
+# inputsize 注意
+model = LSTMpred(testlen, NEUNUM, NLAYER).to('cuda')
 # optimizer = optim.SGD(model.parameters(), lr=0.01)
 # 改用Adam
-optimizer = optim.Adam(model.parameters(), lr=0.001)
+optimizer = optim.Adam(model.parameters(), lr=0.0002)
 loss_function = nn.MSELoss()
 # 配置输入batch
 # xlpath = r'excelTest37000.xlsx'
@@ -184,8 +193,6 @@ x, y = loaddata(xlpath, length = -1, start=1)
 trainlen = round(len(x)*0.7)
 # 后1000 留下测试
 # 分段长度
-testlen = 200
-step = 4
 dat = trainDataGen(x[:trainlen], y[:trainlen], testlen, step=step)
 # 测试集
 testdata = trainDataGen(x[trainlen:], y[trainlen:], testlen, step=step)
@@ -212,9 +219,10 @@ for epoch in range(num_epochs):
     running_loss = 0.0
     for seq, outs in dat:
         seq = ToVariable(seq).cuda()
+        # 1,1,teslen
         seq = seq.view(len(seq), 1)
         outs = ToVariable(outs).cuda()
-        outs = seq.view(len(outs), 1)
+        outs = outs.view(len(outs), 1)
 
         # 由于输入的时array 改为 a x 1 的格式
         # 修改完之后有明显降低
@@ -231,14 +239,17 @@ for epoch in range(num_epochs):
         optimizer.step()
         # 放里头一直更新
         # statistics
-        running_loss += loss.item()
+        # running_loss += loss.item()
+        running_loss = loss.item()
     # 临时绘图
+
     # 测试区段数据
     Testloss = 0
     # 测试集长度
     testdatalen = len(testdata)
     for t1 in testdata:
-        testx = ToVariable(t1[0]).cuda()
+        testx = ToVariable(t1[0]).view(len(t1[0]),1).cuda()
+        # model input 必须是 [xxx,1]
         predDat = model(testx).data.cpu()
         predDat = predDat.numpy()
         trueDat = t1[1]
@@ -264,7 +275,7 @@ for epoch in range(num_epochs):
     # 保存模型参数
     # 保存模型
     if epoch % 10 == 0:
-        pklname = 'param_N{}_Len{}_Ep{}_St{}0912.pkl'.format(NEUNUM,testlen,num_epochs,step)
+        pklname = 'param_N{}_Len{}_Ep{}_St{}0916.pkl'.format(NEUNUM,testlen,num_epochs,step)
         # 保存误差列表
         try:
             save2excel([rloss, Tloss_list], xlname='LossHistr1t20912.xls')

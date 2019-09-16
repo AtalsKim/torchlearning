@@ -12,11 +12,11 @@ excelpath = [Foldname,Filename];
 data_ori = xlsread(excelpath); %nx2
 % 真 假
 %IFFT 轨向
-tru = data_ori(1:5000,1);
+tru = data_ori(1:end,1);
 % 预测轨向
-predt = data_ori(1:5000,2);
+predt = data_ori(1:end,2);
 % 原始值
-longi = data_ori(1:5000,3);
+longi = data_ori(1:end,3);
 
 
 figure;
