@@ -11,8 +11,11 @@ clear;close all;
 excelpath = [Foldname,Filename];
 data_ori = xlsread(excelpath); %nx2
 % 真 假
+%IFFT 轨向
 tru = data_ori(1:5000,1);
+% 预测轨向
 predt = data_ori(1:5000,2);
+% 原始值
 longi = data_ori(1:5000,3);
 
 
@@ -20,9 +23,10 @@ figure;
 plot(tru);
 hold on;
 plot(predt);
-legend('原始信号','LSTM');
+hold on;
+plot(longi);
+legend('IFFT轨向','LSTM', '原始高低');
 ylabel('幅值 / mm')
-
 
 
 

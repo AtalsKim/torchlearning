@@ -4,19 +4,43 @@ clear;close all;
 % 输入是标准的轨检数据 10,12 是高低
 % 输出是xls文件,基本信息不变
 
-[Filename, Foldname]=uigetfile({'*.xls'},"选择XLS");       
+[Filename, Foldname]=uigetfile({'*.xls';'*.xlsx'},"选择XLS");       
 % 第一列： 轨检车轨向数据/真值，IFFT 轨向数据
 % 第二列： LSTM轨向数据
 % 第三列： IFFT高低数据
 
 excelpath = [Foldname,Filename];
-data_ori = xlsread(excelpath); %nx2
+data_ori = xlsread(excelpath,'J:M'); %nx2
+% 删除零行
+dataori = deleteZline(data_ori);
 % JKLM
-preprocessErrWlet(data_ori(1:end,10),'J',Filename)
-preprocessErrWlet(data_ori(1:end,11),'K',Filename)
-preprocessErrWlet(data_ori(1:end,12),'L',Filename)
-preprocessErrWlet(data_ori(1:end,13),'M',Filename)
+preprocessErrWlet(data_ori(1:end,1),'J',Filename);
+preprocessErrWlet(data_ori(1:end,2),'K',Filename);
+preprocessErrWlet(data_ori(1:end,3),'L',Filename);
+preprocessErrWlet(data_ori(1:end,4),'M',Filename);
 
+
+
+
+
+
+function dataori = deleteZline(dataori)
+
+% 去除零行
+% dataori = [1,2,3,4,0,0,0,0,0,2,0,0,0,1];
+
+% 删除三个以上连续数值
+k = find(diff([0,dataori(:,2)'])).';
+g = find(k(2:2:end)- k(1:2:end)>=3);
+% 需要删除的首尾
+dellist = [k(2*g-1),k(2*g)-1];
+delnum = [];
+for i = 1:1:length(dellist(:,1))
+    delnum = [delnum, dellist(i,1):1:dellist(i,2)];
+end
+% 删除行
+dataori(delnum) = [];
+end
 
 
 

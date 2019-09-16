@@ -7,7 +7,7 @@ Modification: 因为还要输net参数，直接在主函数里调用比较方便
 不知道为什么debug可以运行，换一台电脑也可以
 但是直接运行就不行
 假死原因：simplot(y, predDat)
-重新使用小段数据反演，推测模型
+重新使用小段数据反演，推测模型，还是一样，感觉没有学到里头的东西
 
 '''
 
@@ -60,7 +60,8 @@ def NNdataCreate(pklpath,x):
     checkpoint = torch.load(pklpath)
     # 可能有点问题
     NEUNUM = len(checkpoint['lstm.weight_hh_l0'][0])
-    tmodel = LSTMpred(1, NEUNUM).to('cuda')
+    # 读取模型
+    tmodel = LSTMpred2(1, NEUNUM,2).to('cuda')
     tmodel.load_state_dict(checkpoint)
     # plot 都在cpu空间
     testx = ToVariable(x).to('cuda')
@@ -158,33 +159,52 @@ def ToVariable(x):
     tmp = torch.FloatTensor(x)
     return Variable(tmp)
 
+# class LSTMpred1(nn.Module):
+#
+#     def __init__(self, input_size, hidden_dim):
+#         super(LSTMpred1, self).__init__()
+#         self.input_dim = input_size
+#         self.hidden_dim = hidden_dim
+#         self.lstm = nn.LSTM(input_size, hidden_dim)
+#         self.hidden2out = nn.Linear(hidden_dim, 1)
+#         self.hidden = self.init_hidden()
+#
+#     def init_hidden(self):
+#         return (Variable(torch.zeros(1, 1, self.hidden_dim)).cuda(),
+#                 Variable(torch.zeros(1, 1, self.hidden_dim)).cuda())
+#
+#     def forward(self, seq):
+#         lstm_out, self.hidden = self.lstm(
+#             seq.view(len(seq), 1, -1), self.hidden)
+#         outdat = self.hidden2out(lstm_out.view(len(seq), -1))
+#         return outdat
 
-class LSTMpred(nn.Module):
+class LSTMpred2(nn.Module):
 
-    def __init__(self, input_size, hidden_dim):
-        super(LSTMpred, self).__init__()
+    def __init__(self, input_size, hidden_dim, num_layer=1):
+        super(LSTMpred2, self).__init__()
         self.input_dim = input_size
         self.hidden_dim = hidden_dim
-        self.lstm = nn.LSTM(input_size, hidden_dim)
+        self.num_layer = num_layer
+        # 数据归一化操作
+        # self.bn1 = nn.BatchNorm1d(num_features=320)
+        # 增加DROPout 避免过拟合
+        self.lstm = nn.LSTM(input_size, hidden_dim, num_layer, dropout=0.5)
         self.hidden2out = nn.Linear(hidden_dim, 1)
         self.hidden = self.init_hidden()
 
+    # 第一个求导应该不用的吧
     def init_hidden(self):
-        return (Variable(torch.zeros(1, 1, self.hidden_dim)).cuda(),
-                Variable(torch.zeros(1, 1, self.hidden_dim)).cuda())
+        return (Variable(torch.zeros(self.num_layer, 1, self.hidden_dim)).cuda(),
+                Variable(torch.zeros(self.num_layer, 1, self.hidden_dim)).cuda())
 
     def forward(self, seq):
         lstm_out, self.hidden = self.lstm(
             seq.view(len(seq), 1, -1), self.hidden)
         outdat = self.hidden2out(lstm_out.view(len(seq), -1))
         return outdat
-
-
 def main():
     # 配置输入batch
-    # xlpath = r'excelTest37000.xlsx'
-    # xlpath = r'Irr_1000_AM6.xls'
-    # xlpath = r'Irr_1000_GML'
     xlpath = uigetpath(fileend = '.xls')
     pklpath = uigetpath(fileend = '.pkl')
     # 12500~ 15000 有坏值
@@ -196,16 +216,11 @@ def main():
     trueDat = y[tstart:tstart+tlen]
 
     # 生成短序序列 n 短序列长度
-    n = 20
+    n = 200
     # [[],[],[短序列]]
     xs = [x[i:i + n] for i in range(0, len(x), n)]
     predDat = []
     predDat2 = [predDat.extend(NNdataCreate(pklpath, li)) for li in xs]
-    # for i in range(len(xs)):
-    #     predDatshort = NNdataCreate(pklpath, xs[i])
-    #     predDat.extend(predDatshort)
-    # trueDat, predDat = postPlot(x, y)
-    print('SimplotEnd3')
     save2excel([trueDat, predDat, x], xlname=xlpath+'_PyPost_short.xls')
     print('True','|Predict')
 

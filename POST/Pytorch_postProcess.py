@@ -38,7 +38,8 @@ def postPlot(x, y):
     # 重新构造
     # 可能有点问题
     NEUNUM = len(checkpoint['lstm.weight_hh_l0'][0])
-    tmodel = LSTMpred(1, NEUNUM).to('cuda')
+    # 两层
+    tmodel = LSTMpred2(1, NEUNUM,2).to('cuda')
     tmodel.load_state_dict(checkpoint)
     # plot 都在cpu空间
     testx = ToVariable(x).to('cuda')
@@ -158,6 +159,9 @@ class LSTMpred(nn.Module):
             seq.view(len(seq), 1, -1), self.hidden)
         outdat = self.hidden2out(lstm_out.view(len(seq), -1))
         return outdat
+
+
+
 
 
 def main():
