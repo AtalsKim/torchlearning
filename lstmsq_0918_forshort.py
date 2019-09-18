@@ -28,6 +28,23 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # device = torch.device("cpu")
 
 
+#单维最大最小归一化
+def Normalize(list):
+    list = np.array(list)
+    low, high = np.percentile(list, [0, 100])
+    delta = high - low
+    if delta != 0:
+        for i in range(0, len(list)):
+            list[i] = (list[i]-low)/delta
+    return  list,low,high
+
+# 反归一化函数
+def FNoramlize(list,low,high):
+    delta = high - low
+    if delta != 0:
+        for i in range(0, len(list)):
+            list[i] = list[i]*delta + low
+    return list
 
 
 

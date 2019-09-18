@@ -64,12 +64,21 @@ function  preprocessErrWlet(dataori,COLNAME,Filename)
     %% 趋势项消除
 
     qs_ori = dataori;
+    
+    % 最高波长为0.25m 
+    % 滤掉的长波为 0.25*2^n   1-0.5 2-1     9-128 8-64 
+    % 高铁350 的控制波长为120m
     % 后去小波基本参数
-    [C,L] = wavedec(qs_ori,6,'bior4.4');
+    
+    level = 8;
+    [C,L] = wavedec(qs_ori,level,'bior4.4');
     % 获取低频系数
-    ca6 = appcoef(C,L,'bior4.4',6);
+    ca8 = appcoef(C,L,'bior4.4',level);
 
     % 高频信号
+    
+    cd8 = detcoef(C,L,8);
+    cd7 = detcoef(C,L,7);
     cd6 = detcoef(C,L,6);
     cd5 = detcoef(C,L,5);
     cd4 = detcoef(C,L,4);
@@ -79,11 +88,11 @@ function  preprocessErrWlet(dataori,COLNAME,Filename)
 
 
     % 消除超低频信号
-    ca6 = zeros(length(ca6),1);
+    ca8 = zeros(length(ca8),1);
 
 
     % 重建系数矩阵
-    c1 = [ca6;cd6;cd5;cd4;cd3;cd2;cd1];
+    c1 = [ca8;cd8;cd7;cd6;cd5;cd4;cd3;cd2;cd1];
     % 根据系数重构
     s2 = waverec(c1,L,'bior4.4');
 

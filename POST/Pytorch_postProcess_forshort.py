@@ -50,7 +50,7 @@ def postPlot(x, y):
     print('SimplotEnd2')
     return y, predDat
 
-def NNdataCreate(pklpath,x):
+def NNdataCreate(pklpath, x, NL, BATCH):
     """
 
     :param pklpath: pkl文件路径
@@ -61,7 +61,7 @@ def NNdataCreate(pklpath,x):
     # 可能有点问题
     NEUNUM = len(checkpoint['lstm.weight_hh_l0'][0])
     # 读取模型
-    tmodel = LSTMpred2(1, NEUNUM,2).to('cuda')
+    tmodel = LSTMpred2(1, NEUNUM, batchsize=BATCH, num_layer=NL).to('cuda')
     tmodel.load_state_dict(checkpoint)
     # plot 都在cpu空间
     testx = ToVariable(x).to('cuda')
@@ -178,9 +178,8 @@ def ToVariable(x):
 #             seq.view(len(seq), 1, -1), self.hidden)
 #         outdat = self.hidden2out(lstm_out.view(len(seq), -1))
 #         return outdat
-
-class LSTMpred2(nn.Module):
-
+# 0917 更改作废
+class LSTMpred2_ori0917(nn.Module):
     def __init__(self, input_size, hidden_dim, num_layer=1):
         super(LSTMpred2, self).__init__()
         self.input_dim = input_size
@@ -203,6 +202,53 @@ class LSTMpred2(nn.Module):
             seq.view(len(seq), 1, -1), self.hidden)
         outdat = self.hidden2out(lstm_out.view(len(seq), -1))
         return outdat
+
+
+
+# 0917 COLAB 批量计算
+
+class LSTMpred2(nn.Module):
+
+    def __init__(self, input_size, hidden_dim, batchsize, num_layer=1):
+        super(LSTMpred2, self).__init__()
+        self.input_dim = input_size
+        self.hidden_dim = hidden_dim
+        self.num_layer = num_layer
+        self.batchsize = batchsize
+        # self.hidden = self.init_hidden()
+        # 数据归一化操作
+        # self.bn1 = nn.BatchNorm1d(num_features=320)
+        # 增加DROPout 避免过拟合
+        self.lstm = nn.LSTM(input_size, hidden_dim, num_layer, dropout=0.5)
+        # outfeature = 1
+        self.hidden2out = nn.Linear(self.hidden_dim, 1)
+
+    # 第一个求导应该不用的吧
+    def init_hidden(self):
+        return (
+        Variable(torch.zeros(self.num_layer, self.batchsize, self.hidden_dim)).cuda(),
+        Variable(torch.zeros(self.num_layer, self.batchsize, self.hidden_dim)).cuda())
+
+    def forward(self, seq):
+        # 三个句子，10个单词，1000
+
+        # hc维度应该是 [层数，batch, hiddensize]
+        # out 维度应该是[单词, batch, hiddensize]
+        # lstm_out, self.hidden = self.lstm(seq.view(len(seq), 1, -1), self.hidden)
+        # seq =1  batch 1 vec 200
+
+        # vecinput 行数据的个数
+        # input >>> [seq_len, batchsize, input_size]
+        # out >>> [seq_len, bathchsize, hiddenlayernum]
+        # h,c >>> [层数，batchsize, hiddensize]
+        lstm_out, self.hidden = self.lstm(
+            seq.view(int(len(seq) / self.batchsize), self.batchsize, 1), self.hidden)
+        # 是不是多对一的话留下最后结果
+        # outdat = self.hidden2out(lstm_out[-1].view(self.batchsize, -1))
+        # return outdat.view(-1)
+        outdat = self.hidden2out(lstm_out.view(len(seq), -1))
+        return outdat
+
 def main():
     # 配置输入batch
     xlpath = uigetpath(fileend = '.xls')
