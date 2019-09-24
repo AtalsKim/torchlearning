@@ -25,27 +25,49 @@ import visdom
 
 global device
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+
 # device = torch.device("cpu")
 
 
-#单维最大最小归一化
-def Normalize(list):
+
+
+
+
+#
+
+
+
+
+
+
+# 均值、方差归一化
+def MS_normalize(data):
+    mu = np.mean(data, axis=0)
+    std = np.std(data, axis=0)
+    return (data - mu) / std, mu, std
+
+def MS_Fnormalize(data, mu, std):
+    return data * std + mu
+
+# 单维最大最小归一化
+def MMNormalize(list):
     list = np.array(list)
     low, high = np.percentile(list, [0, 100])
     delta = high - low
     if delta != 0:
         for i in range(0, len(list)):
-            list[i] = (list[i]-low)/delta
-    return  list,low,high
+            list[i] = (list[i] - low) / delta
+    return list, low, high
+
 
 # 反归一化函数
-def FNoramlize(list,low,high):
+def MMFNoramlize(list, low, high):
     delta = high - low
     if delta != 0:
         for i in range(0, len(list)):
-            list[i] = list[i]*delta + low
+            list[i] = list[i] * delta + low
     return list
-
 
 
 def postPlot(model, x, y):
@@ -176,8 +198,10 @@ class LSTMpred(nn.Module):
     # 第一个求导应该不用的吧
     def init_hidden(self):
         return (
-        Variable(torch.zeros(self.num_layer, self.batchsize, self.hidden_dim)).to(device),
-        Variable(torch.zeros(self.num_layer, self.batchsize, self.hidden_dim)).to(device))
+            Variable(torch.zeros(self.num_layer, self.batchsize, self.hidden_dim)).to(
+                device),
+            Variable(torch.zeros(self.num_layer, self.batchsize, self.hidden_dim)).to(
+                device))
 
     def forward(self, seq):
         # 三个句子，10个单词，1000
@@ -205,20 +229,20 @@ def main():
     NEUNUM = 128
     NLAYER = 2
     # batchsize
-    testlen = 600
+    testlen = 3000
     step = 4
     num_epochs = 10000
     port = 6007
     # os.popen(r"python -m visdom.server -port %d"%port)
 
-
-
-
-
     # inputsize 这个应该是指特征的维度，所以是1
     model = LSTMpred(1, NEUNUM, testlen, NLAYER).to(device)
     # 改用Adam
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    # L2正则化 weight_decay = 0.01
+    optimizerSGD = optim.SGD(model.parameters(), lr=0.005, weight_decay=0.01)
+
+    optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=0.01)
+
     loss_function = nn.MSELoss()
     # 配置输入batch
     # xlpath = r'excelTest37000.xlsx'
@@ -226,12 +250,21 @@ def main():
     # xlpath = r'SINETEST1000.xls'
     # 12500~ 15000 有坏值
     x, y = loaddata(xlpath, length=90000, start=1)
+
     trainlen = round(len(x) * 0.8)
     # 后1000 留下测试
 
-    dat = trainDataGen(x[:trainlen], y[:trainlen], testlen, step=step)
-    # 测试集
-    testdata = trainDataGen(x[trainlen:], y[trainlen:], testlen, step=step)
+    # 数据划分
+    traindatx = [x[:trainlen], y[:trainlen]]
+    testdata = [x[trainlen:], y[trainlen:]]
+
+
+# 不用原始的batch
+    # dat = trainDataGen(x[:trainlen], y[:trainlen], testlen, step=step)
+    # # 测试集
+    # testdata = trainDataGen(x[trainlen:], y[trainlen:], testlen, step=step)
+
+
     # 模型计算总参数
     mparanum = print_model_parm_nums(model)
     rloss = []
@@ -270,14 +303,17 @@ def main():
                                                                           NLAYER,
                                                                           mparanum),
         win='Training set')
+    seq = traindatx[0]
+    outs = traindatx[1]
+    # 归一化处理
+    seq0, tmu1, tstd1 = MS_normalize(np.array(seq))
+    outs0, tmu2, tstd2 = MS_normalize(np.array(outs))
     for epoch in range(num_epochs):
         # print(epoch, end='')
 
-        seq = x
-        outs = y
-        seq = ToVariable(seq).to(device)
+        seq = ToVariable(seq0).to(device)
         seq = seq.view(len(seq), 1)
-        outs = ToVariable(outs).to(device)
+        outs = ToVariable(outs0).to(device)
         outs = outs.view(len(outs), 1)
         # 由于输入的时array 改为 a x 1 的格式
         # 修改完之后有明显降低
@@ -303,32 +339,38 @@ def main():
         # 测试区段数据
         Testloss = 0
         # 测试集长度
-        testdatalen = len(testdata)
-        for t1 in testdata:
-            testx = ToVariable(t1[0]).view(len(t1[0]), 1).to(device)
-            # model input 必须是 [xxx,1]
-            with torch.no_grad():
-                predDat = model(testx).data.cpu()
-            predDat = predDat.numpy().reshape(-1)
-            trueDat = t1[1]
-            # 测试误差
-            Tloss_truDat = np.array(trueDat)
-            Testloss0 = loss_function(ToVariable(predDat).view(len(predDat), 1),
-                                      ToVariable(Tloss_truDat).view(len(Tloss_truDat), 1))
-            Testloss += Testloss0
-            # 绘制最后一步的测试
-            if t1 == testdata[-1]:
-                vis.line(Tloss_truDat, win='trueDat',
-                         opts=dict(
-                             legend=['trueDat'],
-                             title='trueDat'
-                         ))
-                vis.line(predDat, win='predDat',
-                         opts=dict(
-                             legend=['predDat'],
-                             title='predDat'
-                         ))
-        Testloss = Testloss / testdatalen
+        # 整体测试
+
+
+        t1 = testdata
+        # 测试数据的输入归一化
+        t1regu, _, _ = MS_normalize(t1[0])
+        testx = ToVariable(t1regu).view(len(t1regu), 1).to(device)
+        # model input 必须是 [xxx,1],d
+        with torch.no_grad():
+            predDat = model(testx).data.cpu()
+        predDat = predDat.numpy().reshape(-1)
+
+        # 反归一化处理
+        predDat = MS_Fnormalize(predDat, tmu2, tmu2)
+
+        trueDat = t1[1]
+        # 测试误差
+        Tloss_truDat = np.array(trueDat)
+        Testloss0 = loss_function(ToVariable(predDat).view(len(predDat), 1),
+                                  ToVariable(Tloss_truDat).view(len(Tloss_truDat), 1))
+        Testloss += Testloss0
+        # 绘制最后一步的测试
+        vis.line(Tloss_truDat, win='trueDat',
+                 opts=dict(
+                     legend=['trueDat'],
+                     title='trueDat'
+                 ))
+        vis.line(predDat, win='predDat',
+                 opts=dict(
+                     legend=['predDat'],
+                     title='predDat'
+                 ))
 
         # # 简单绘图
         # # simplot(trueDat, predDat)
@@ -362,12 +404,9 @@ def main():
 
         # 保存模型参数
         # 保存模型
-        if epoch % 10 == 0:
+        if epoch % 50 == 0:
             pklname = 'param_N{}_layer{}_Len{}_Ep{}_St{}0916change.pkl'.format(NEUNUM,
-                                                                               NLAYER,
-                                                                               testlen,
-                                                                               num_epochs,
-                                                                               step)
+                                                                step)
             # 保存误差列表
             try:
                 save2excel([rloss, Tloss_list], xlname='LossHistr1t20916.xls')

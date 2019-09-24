@@ -295,7 +295,7 @@ def main():
 
     # seqn, feature1,
     # batch 一次送多少个数据
-    print("Epoch Start...")
+
 
     running_loss = 0.0
     # 使用VISDOM 进行绘图
@@ -308,6 +308,8 @@ def main():
         win='Training set')
 
     # 开始训练
+    _ = input('Press any key to continue.......')
+    print("Epoch Start...")
     for epoch in range(num_epochs):
 
         seq = x

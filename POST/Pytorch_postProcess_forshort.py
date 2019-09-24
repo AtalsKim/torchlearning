@@ -206,7 +206,6 @@ class LSTMpred2_ori0917(nn.Module):
 
 
 # 0917 COLAB 批量计算
-
 class LSTMpred2(nn.Module):
 
     def __init__(self, input_size, hidden_dim, batchsize, num_layer=1):
