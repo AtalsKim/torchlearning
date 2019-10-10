@@ -1,4 +1,11 @@
 # -*- coding: utf-8 -*-
+"""
+Created on Wed Sep 25 10:55:54 2019
+
+@author: Administrator
+"""
+
+# -*- coding: utf-8 -*-
 __author__ = 'Atlas'
 '''
 Author: Atlas Kim
@@ -132,8 +139,8 @@ def save2excel(data, xlname='Pred_Truth.xls'):
         for i in range(len(data[j])):
             wsheet.write(i, j, label=float(data[j][i]))
     workbook.save(xlsfilename)
-    print("Excel out finished.")
-    print(os.path.abspath(xlname))
+#    print("Excel out finished.")
+#    print(os.path.abspath(xlname))
     return None
 
 
@@ -150,11 +157,11 @@ def loaddata(xlpath, length=-1, start=1):
     rows = sheet2.row_values(0)  # 获取第四行内容
     # 9 左高低，11 左轨向   10右高低   12右轨向
     if length == -1:
-        inputs = sheet2.col_values(9, start_rowx=start)
-        targets = sheet2.col_values(11, start_rowx=start)
+        inputs = sheet2.col_values(10, start_rowx=start)
+        targets = sheet2.col_values(12, start_rowx=start)
     else:
-        inputs = sheet2.col_values(9, start_rowx=start, end_rowx=start + length)
-        targets = sheet2.col_values(11, start_rowx=start, end_rowx=start + length)
+        inputs = sheet2.col_values(10, start_rowx=start, end_rowx=start + length)
+        targets = sheet2.col_values(12, start_rowx=start, end_rowx=start + length)
     print('Datasetlens: ', len(inputs))
     return inputs, targets
 
@@ -242,24 +249,17 @@ class LSTMpred(nn.Module):
         # 是不是多对一的话留下最后结果
         # outdat = self.hidden2out(lstm_out[-1].view(self.batchsize, -1))
         # return outdat.view(-1)
-
         outdat = self.hidden2out(lstm_out.view(len(seq), -1))
-        # 直接输出
-        # rawout = lstm_out[:,:,-1]
         return outdat
 
 
-def main():
+def main(NEUNUM = 16,NLAYER = 4,testlen = 1000,num_epochs = 10000,caseN = 9999):
     TESTMOD = False
     LOADPKL = False
-    NEUNUM = 128
-    NLAYER = 2
     # batchsize
-    testlen = 3000
     step = 4
-    num_epochs = 10000
     port = 6007
-    caseN = 13
+
 
     visdomenv = 'PytorchTest%d' % caseN
     # inputsize 这个应该是指特征的维度，所以是1
@@ -275,8 +275,8 @@ def main():
     mparanum = print_model_parm_nums(model)
 
     # 数据读取
-    xlpath = r'Prep_DATA0915.xlsx'
-    x, y = loaddata(xlpath, length=90000, start=1)
+    xlpath = r'Prep_BJ_GJC_W2014010602.xlsx'
+    x, y = loaddata(xlpath, length=80000, start=1)
     trainlen = round(len(x) * 0.8)
     dat = trainDataGen(x[:trainlen], y[:trainlen], testlen, step=step)
     testdata = trainDataGen(x[trainlen:], y[trainlen:], testlen, step=step)
@@ -313,17 +313,16 @@ def main():
         win='Training set')
 
     # 开始训练
-    _ = input('Press any key to continue.......')
+    #    _ = input('Press any key to continue.......')
     print("Epoch Start...")
     for epoch in range(num_epochs):
 
+        #        # 感觉目标应该是psd的相差较小
+        #        seq = 2 * abs(np.fft.fft(x)) ** 2 / (len(x))
+        #        outs = 2 * abs(np.fft.fft(y)) ** 2 / (len(y))
+
         seq = x
         outs = y
-
-        # 感觉目标应该是psd的相差较小
-        # seq = 2 * abs(np.fft.fft(x)) ** 2 / (len(x))
-        # outs = 2 * abs(np.fft.fft(y)) ** 2 / (len(y))
-
         seq = ToVariable(seq).to(device)
         seq = seq.view(len(seq), 1)
         outs = ToVariable(outs).to(device)
@@ -367,35 +366,32 @@ def main():
             Testloss0 = loss_function(ToVariable(predDat).view(len(predDat), 1),
                                       ToVariable(Tloss_truDat).view(len(Tloss_truDat), 1))
             Testloss += Testloss0
+
             # 绘制最后一步的测试
             if t1 == testdata[-1]:
-                vis.line(Tloss_truDat, win='trueDat',
+                vis.line(np.column_stack((Tloss_truDat, predDat)), win='trueDat',
                          opts=dict(
-                             legend=['trueDat'],
+                             legend=['trueDat', 'predDat'],
                              title='trueDat'
                          ))
-                vis.line(predDat, win='predDat',
-                         opts=dict(
-                             legend=['predDat'],
-                             title='predDat'
-                         ))
-        Testloss = Testloss / testdatalen
 
+        Testloss = Testloss / testdatalen
 
         # 计算轨道谱
         f = np.linspace(0, 2, len(predDat))
-        Pxx = 2 * abs(np.fft.fft(predDat)) ** 2 / (len(predDat))
+        Pxx = 2 * abs(np.fft.fft(predDat)) ** 2 / (4 * len(predDat))
         f0 = np.linspace(0, 2, len(testdata[0][0]))
-        Pxx0 = 2 * abs(np.fft.fft(testdata[0][0])) ** 2 / (len(testdata[0][0]))
+        Pxx0 = 2 * abs(np.fft.fft(testdata[0][0])) ** 2 / (4 * len(testdata[0][0]))
 
-        vis.line(X = np.column_stack((f, f0)), Y = np.column_stack((Pxx.reshape(-1), Pxx0.reshape(-1))), win = 'PSD',
+        vis.line(X=np.column_stack((f, f0)),
+                 Y=np.column_stack((Pxx.reshape(-1), Pxx0.reshape(-1))), win='PSD',
                  opts=dict(
-                     legend=['PSD-pred', 'a'],
+                     legend=['PSD-LSTM', 'TEST'],
                      title='PSD',
-                     ytype = 'log',
-                     xtype = 'log'
+                     ytype='log',
+                     xtype='log'
                  ))
-
+        #        np.array(Pxx.reshape(-1), f)
 
         # # 简单绘图
         # # simplot(trueDat, predDat)
@@ -403,21 +399,14 @@ def main():
         rloss.append(running_loss)
         Tloss_list.append(Testloss)
 
-        vis.line(rloss, win='model Loss',
+        vis.line(np.column_stack((rloss, Tloss_list)), win='model Loss',
                  opts=dict(
-                     legend=['Training Loss'],
-                     title='Training Loss'
-                 ))
-        vis.line(Tloss_list, win='Test Loss',
-                 opts=dict(
-                     legend=['Test Loss'],
-                     title='Test Loss'
+                     legend=['Training Loss', 'Test Loss'],
+                     title='Loss'
                  ))
 
-
-
-        print(' Epoch[{}/{}], loss:{:.6f}， Tloss:{:.6f}'.format(epoch, num_epochs,
-                                                                running_loss, Testloss))
+#        print(' Epoch[{}/{}], loss:{:.6f}， Tloss:{:.6f}'.format(epoch, num_epochs,
+#                                                                running_loss, Testloss))
         vis.text(' Epoch[{}/{}], loss:{:.6f}， Tloss:{:.6f}'.format(epoch, num_epochs,
                                                                    running_loss,
                                                                    Testloss),
@@ -430,13 +419,13 @@ def main():
         # Testloss = loss_function(modout, outs)
 
         # 保存模型参数
-        if epoch % 1000 == 0:
+        if epoch % 200 == 0:
             pklname = 'param_N{}_layer{}_Len{}_Ep{}_St{}0916change-CASE{}_{}.pkl'.format(
                 NEUNUM,
                 NLAYER,
                 testlen,
                 num_epochs,
-                step, caseN,epoch)
+                step, caseN, epoch)
             # 保存误差列表
             try:
                 save2excel([rloss, Tloss_list],
@@ -445,7 +434,7 @@ def main():
                 print('Loss saving failed.')
             # save2excel([Tloss_list], xlname='TestLossHist0912.xls')
             torch.save(model.state_dict(), pklname)
-            print("> Parameters have been saved.")
+#            print("> Parameters have been saved.")
 
     # 最终测试
     predDat = model(ToVariable(x[-2 * testlen:]).to(device)).data.cpu()
@@ -462,4 +451,21 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    casepath = r'.\1010超参数计算.xlsx'
+    workbook = xlrd.open_workbook(casepath)
+    sheet2 = workbook.sheet_by_index(0)
+    nrows = sheet2.nrows
+    # 获取整行和整列的值（数组）
+
+    for i in range(1, nrows):
+        paramC = sheet2.row_values(i)
+        try:
+            print('Case ',i ,'/',nrows-1)
+            main(NEUNUM = int(paramC[0]),
+                 NLAYER = int(paramC[1]),
+                 testlen = int(paramC[2]),
+                 num_epochs = int(paramC[3]),
+                 caseN = int(paramC[4]))
+            torch.cuda.empty_cache()
+        except:
+            print('!!! Case Error')

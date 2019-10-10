@@ -22,7 +22,19 @@ import xlrd
 import xlwt
 import os
 import sys
+import  matlab.engine
+import scipy.io as scio
 
+global device
+# device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = "cpu"
+
+
+
+def savemat(savepath, matdict):
+    # 保存为mat格式
+    # todo 保存为MAT格式
+    scio.savemat(savepath, matdict)
 
 def uigetpath(fileend = '.pkl'):
     import tkinter as tk
@@ -33,7 +45,6 @@ def uigetpath(fileend = '.pkl'):
     return filepath
 
 
-
 def postPlot(x, y):
     # 单次生成
     filepath = uigetpath(fileend = '.pkl')
@@ -41,16 +52,16 @@ def postPlot(x, y):
     # 重新构造
     # 可能有点问题
     NEUNUM = len(checkpoint['lstm.weight_hh_l0'][0])
-    tmodel = LSTMpred(1, NEUNUM).to('cuda')
+    tmodel = LSTMpred(1, NEUNUM).to(device)
     tmodel.load_state_dict(checkpoint)
     # plot 都在cpu空间
-    testx = ToVariable(x).to('cuda')
+    testx = ToVariable(x).to(device)
     predDat = tmodel(testx).data.to('cpu').numpy()
     simplot(y, predDat)
     print('SimplotEnd2')
     return y, predDat
 
-def NNdataCreate(pklpath, x, NL, BATCH):
+def NNdataCreate(pklpath, x, BATCH):
     """
 
     :param pklpath: pkl文件路径
@@ -60,28 +71,29 @@ def NNdataCreate(pklpath, x, NL, BATCH):
     checkpoint = torch.load(pklpath)
     # 可能有点问题
     NEUNUM = len(checkpoint['lstm.weight_hh_l0'][0])
+    NL = round((len(checkpoint) - 2) / 4)
     # 读取模型
-    tmodel = LSTMpred2(1, NEUNUM, batchsize=BATCH, num_layer=NL).to('cuda')
+    tmodel = LSTMpred2(1, NEUNUM, batchsize=BATCH, num_layer=NL).to(device)
     tmodel.load_state_dict(checkpoint)
     # plot 都在cpu空间
-    testx = ToVariable(x).to('cuda')
+    testx = ToVariable(x).to(device)
     predDat = tmodel(testx).data.to('cpu').numpy()
 
     return predDat
 
-def simplot(trueDat, predDat):
+def simplot(trueDat, predDat, title = ''):
 
     plt.figure()
     # plt.plot(y.numpy())
     plt.plot(trueDat, label='Truedata')
     plt.plot(predDat, label='Predict', alpha=0.7)
+    plt.title(title)
     plt.legend()
 
     # plt.show()
-    plt.pause(5)
     plt.draw()
-
-
+    plt.pause(2)
+    plt.close()
     print('SimplotEnd1')
 
 
@@ -102,8 +114,7 @@ def save2excel(data, xlname='Pred_Truth.xls'):
 
 
 def loaddata(xlpath, length=-1, start=1):
-    # 打开文件
-
+    # 打开文件, 9,11
     workbook = xlrd.open_workbook(xlpath)
     # 获取所有sheet
     print(workbook.sheet_names())  # [u'sheet1', u'sheet2']
@@ -203,8 +214,6 @@ class LSTMpred2_ori0917(nn.Module):
         outdat = self.hidden2out(lstm_out.view(len(seq), -1))
         return outdat
 
-
-
 # 0917 COLAB 批量计算
 class LSTMpred2(nn.Module):
 
@@ -214,7 +223,7 @@ class LSTMpred2(nn.Module):
         self.hidden_dim = hidden_dim
         self.num_layer = num_layer
         self.batchsize = batchsize
-        # self.hidden = self.init_hidden()
+        self.hidden = self.init_hidden()
         # 数据归一化操作
         # self.bn1 = nn.BatchNorm1d(num_features=320)
         # 增加DROPout 避免过拟合
@@ -225,8 +234,8 @@ class LSTMpred2(nn.Module):
     # 第一个求导应该不用的吧
     def init_hidden(self):
         return (
-        Variable(torch.zeros(self.num_layer, self.batchsize, self.hidden_dim)).cuda(),
-        Variable(torch.zeros(self.num_layer, self.batchsize, self.hidden_dim)).cuda())
+        Variable(torch.zeros(self.num_layer, self.batchsize, self.hidden_dim)).to(device),
+        Variable(torch.zeros(self.num_layer, self.batchsize, self.hidden_dim)).to(device))
 
     def forward(self, seq):
         # 三个句子，10个单词，1000
@@ -248,26 +257,55 @@ class LSTMpred2(nn.Module):
         outdat = self.hidden2out(lstm_out.view(len(seq), -1))
         return outdat
 
-def main():
+def main(xlpath, pklpath, pklname, batchsize, dlen = 10000):
     # 配置输入batch
-    xlpath = uigetpath(fileend = '.xls')
-    pklpath = uigetpath(fileend = '.pkl')
+
     # 12500~ 15000 有坏值
-    # xy[]
-    x, y = loaddata(xlpath, length=-1, start=1)
+    # xy[] 9 11
+    x, y = loaddata(xlpath, length=dlen, start=1)
     tlen = len(x)
     tstart = 0
     x = x[tstart:tstart+tlen]
     trueDat = y[tstart:tstart+tlen]
 
     # 生成短序序列 n 短序列长度
-    n = 200
-    # [[],[],[短序列]]
-    xs = [x[i:i + n] for i in range(0, len(x), n)]
+    n = batchsize
+    # 直接长序列
+
     predDat = []
-    predDat2 = [predDat.extend(NNdataCreate(pklpath, li)) for li in xs]
-    save2excel([trueDat, predDat, x], xlname=xlpath+'_PyPost_short.xls')
-    print('True','|Predict')
+    predDat.extend(NNdataCreate(pklpath, x, n))
+
+    # [[],[],[短序列]]
+    # xs = [x[i:i + n] for i in range(0, len(x), n)]
+    # predDat = []
+    # [predDat.extend(NNdataCreate(pklpath, li, 200)) for li in xs]
+
+    folder = os.path.split(xlpath)[0]+'/'+'pypostlib/'
+    xlname = folder+'PyPost_short'+os.path.split(xlpath)[1]+pklname+'.xls'
+    print('IFFT', ' | LSTM', ' | GD', ' | GX')
+    save2excel([trueDat, predDat, x, y], xlname=xlname)
+    # 是否绘图
+    # simplot(trueDat, predDat, pklname)
+
 
 if __name__ == '__main__':
-    main()
+
+    xlpath = uigetpath(fileend = ['.xls','.xlsx'])
+    # pkl folder
+    folder = os.path.split(xlpath)[0]+'/pkl/'
+    pkllist = os.listdir(folder)
+    pklist = [i for i in pkllist if i.endswith(".pkl")]
+    batchsize = int(input('Batchsize:'))
+    for i in pklist:
+        print("============================")
+        pklpath = os.path.join(folder,i)
+        print(pklpath)
+        try:
+            # batch size 得一起改, dlen 为 batch batchsize的整数倍
+            main(xlpath, pklpath, i, batchsize, dlen = 40000)
+        except:
+            None
+
+    eng = matlab.engine.start_matlab()
+    eng.eval(r"addpath('C:\Users\64451\Desktop\用于验证的IFFT文件')")
+    eng.LSTM_post(nargout=0)

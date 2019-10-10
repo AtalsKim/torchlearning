@@ -11,14 +11,21 @@ clear;close all;
 
 excelpath = [Foldname,Filename];
 data_ori = xlsread(excelpath,'J:M'); %nx2
-% 删除零行
-dataori = deleteZline(data_ori);
+
+% 去除空缺
+for i = 1:4
+    [a,b] = find(diff(data_ori,1,1) == 0);
+    u_a = unique(a);
+end
+data_ori(u_a',:) = [];
+
+% % 删除零行
+% dataori = deleteZline(data_ori);
 % JKLM
 preprocessErrWlet(data_ori(1:end,1),'J',Filename);
 preprocessErrWlet(data_ori(1:end,2),'K',Filename);
 preprocessErrWlet(data_ori(1:end,3),'L',Filename);
 preprocessErrWlet(data_ori(1:end,4),'M',Filename);
-
 
 
 
@@ -38,14 +45,20 @@ delnum = [];
 for i = 1:1:length(dellist(:,1))
     delnum = [delnum, dellist(i,1):1:dellist(i,2)];
 end
+
 % 删除行
 dataori(delnum) = [];
+
+
+
 end
 
 
 
 
 function  preprocessErrWlet(dataori,COLNAME,Filename)
+
+
 
     %% 异常值消除
     % 遍历错误项消除0.003
