@@ -25,7 +25,7 @@ import sys
 import matlab.engine
 import scipy.io as scio
 import re
-
+import torch.utils.data as Data
 
 
 global device
@@ -85,6 +85,29 @@ def NNdataCreate(pklpath, x, BATCH):
     testx = ToVariable(x).to(device)
     predDat = tmodel(testx).data.to('cpu').numpy()
 
+    return predDat
+
+def NNdataCreate_mb(pklpath, x, BATCH):
+    """
+
+    :param pklpath: pkl文件路径
+    :param x: 高低不平顺幅值短序
+    :return: 轨向不平衡孙
+    """
+    checkpoint = torch.load(pklpath)
+    # 神经元数量计算
+    NEUNUM = len(checkpoint['lstm.weight_hh_l0'][0])
+    # 网络层数计算
+    NL = round((len(checkpoint) - 2) / 4)
+    # 读取模型
+    tmodel = LSTMpred_minibatch(1, NEUNUM, batchsize=BATCH, num_layer=NL).to(device)
+    tmodel.load_state_dict(checkpoint)
+    # plot 都在cpu空间
+    testx = ToVariable(x).to(device)
+    with torch.no_grad():
+        h_state = tmodel.init_hidden()
+        predDat, _ = tmodel(testx, h_state)
+        predDat.to('cpu').numpy()
     return predDat
 
 def simplot(trueDat, predDat, title = ''):
@@ -263,23 +286,100 @@ class LSTMpred2(nn.Module):
         outdat = self.hidden2out(lstm_out.view(len(seq), -1))
         return outdat
 
+
+
+class LSTMpred_minibatch(nn.Module):
+
+    def __init__(self, input_size, hidden_dim, batchsize=1, num_layer=1, out_size=1):
+        super(LSTMpred_minibatch, self).__init__()
+        self.input_size = input_size
+        self.hidden_dim = hidden_dim
+        self.num_layer = num_layer
+        self.batchsize = batchsize
+        self.hidden = self.init_hidden()
+        # 数据归一化操作
+        # self.bn1 = nn.BatchNorm1d(num_features=320)
+        # 增加DROPout 避免过拟合
+        self.lstm = nn.LSTM(input_size, hidden_dim, num_layer, dropout=0.2)
+        # outfeature = 1
+        self.hidden2out = nn.Linear(self.hidden_dim, out_size)
+
+    # 第一个求导应该不用的吧
+    def init_hidden(self):
+        # print('hidden to zeros')
+        return (
+            Variable(torch.zeros(self.num_layer, self.batchsize, self.hidden_dim)).to(
+                device),
+            Variable(torch.zeros(self.num_layer, self.batchsize, self.hidden_dim)).to(
+                device))
+
+    def forward(self, seq, h_state):
+        # 三个句子，10个单词，1000
+
+        # hc维度应该是 [层数，batch, hiddensize]
+        # out 维度应该是[单词, batch, hiddensize]
+        # lstm_out, self.hidden = self.lstm(seq.view(len(seq), 1, -1), self.hidden)
+        # seq =1  batch 1 vec 200
+
+        # vecinput 行数据的个数
+        # seq = 1组里头有多少数据，batchsize 喂多少组， input维数
+        # input >>> [seq_len, batchsize, input_size]
+        # out >>> [seq_len, bathchsize, hiddenlayernum]
+        # h,c >>> [层数，batchsize, hiddensize]
+        # lstm_out, self.hidden = self.lstm(
+        #     seq.view(-1, self.batchsize, self.input_size), self.hidden)
+        # 是不是多对一的话留下最后结果
+        # outdat = self.hidden2out(lstm_out[-1].view(self.batchsize, -1))
+        # return outdat.view(-1)
+        lstm_out, h_state = self.lstm(
+            seq.view(-1, self.batchsize, self.input_size), h_state)
+        # 改成线性层输出形式
+        s, b, h = lstm_out.shape
+        x = lstm_out.view(s * b, h)
+        outdat = self.hidden2out(x)
+        # outdat = self.hidden2out(lstm_out.view(len(seq), -1))
+        return outdat, h_state
+
+        # # 莫凡的方法，循环和第一种结果一样
+        # mf_out = []
+        # for time_s in range(lstm_out.size(0)):
+        #     mf_out.append(self.hidden2out(lstm_out[time_s,:,:]))
+        # mf_out = torch.stack(mf_out, dim=1)
+        # # 变成 N X 1
+        # mf_out = mf_out.view(-1,1)
+
+
+
+
 def main(xlpath, pklpath, pklname, batchsize, dlen = 10000):
     # 配置输入batch
 
     # 12500~ 15000 有坏值
     # xy[] 9 11
     x, y = loaddata(xlpath, length=dlen, start=1)
-    tlen = len(x)
-    tstart = 0
-    x = x[tstart:tstart+tlen]
-    trueDat = y[tstart:tstart+tlen]
 
-    # 生成短序序列 n 短序列长度
-    n = batchsize
-    # 直接长序列
+
+    # 使用dataloader
+    test_dataset = Data.TensorDataset(ToVariable(x), ToVariable(y))
+    test_loader = Data.DataLoader(dataset=test_dataset,
+                                  batch_size=batchsize,
+                                  shuffle=False,
+                                  drop_last=True)
 
     predDat = []
-    predDat.extend(NNdataCreate(pklpath, x, n))
+    trueDat = []
+    for seq, outs in test_loader:
+        predDat.extend(NNdataCreate_mb(pklpath, seq, 1))
+        trueDat.extend(outs.view(-1,1))
+
+
+
+
+
+
+
+    # 直接导入40000？？？自动的时候确实可以
+    # predDat.extend(NNdataCreate_mb(pklpath, x, n))
 
     # [[],[],[短序列]]
     # xs = [x[i:i + n] for i in range(0, len(x), n)]
@@ -289,7 +389,7 @@ def main(xlpath, pklpath, pklname, batchsize, dlen = 10000):
     folder = os.path.split(xlpath)[0]+'/'+'pypostlib/'
     xlname = folder+'PyPost_short'+os.path.split(xlpath)[1]+pklname+'.xls'
     print('IFFT', ' | LSTM', ' | GD', ' | GX')
-    save2excel([trueDat, predDat, x, y], xlname=xlname)
+    save2excel([trueDat, predDat, x[:len(predDat)], y[:len(predDat)]], xlname=xlname)
     # 是否绘图
     # simplot(trueDat, predDat, pklname)
 
