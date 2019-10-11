@@ -276,6 +276,8 @@ def main(NEUNUM=16, NLAYER=4, testlen=1000, num_epochs=10000, caseN=9999):
     # batchsize
     step = 4
     port = 6007
+    loadlen = 80000
+    testdatlen = 2000
 
     visdomenv = 'PytorchTest%d' % caseN
     # inputsize 这个应该是指特征的维度，所以是1
@@ -295,10 +297,9 @@ def main(NEUNUM=16, NLAYER=4, testlen=1000, num_epochs=10000, caseN=9999):
     mparanum = print_model_parm_nums(model)
 
     # # 数据读取
-    # xlpath = r'Prep_BJ_GJC_W2014010602.xlsx'
+    xlpath = r'Prep_BJ_GJC_W2014010602.xlsx'
     # 测试
-    xlpath = r'Prep_BJ_GJC_W2014010602sine.xlsx'
-    loadlen = 2000
+    # xlpath = r'Prep_BJ_GJC_W2014010602sine.xlsx'
 
     ## 训练集
     x, y = loaddata(xlpath, length=loadlen, start=1)
@@ -314,13 +315,15 @@ def main(NEUNUM=16, NLAYER=4, testlen=1000, num_epochs=10000, caseN=9999):
     # testdata = trainDataGen(x[trainlen:], y[trainlen:], testlen, step=step)
 
     ## 测试集
-    x_t, y_t = loaddata(xlpath, length=int(loadlen * 0.2), start=loadlen + 1)
+    x_t, y_t = loaddata(xlpath, length=testdatlen, start=loadlen + 1)
     # 使用dataloader
     test_dataset = Data.TensorDataset(ToVariable(x_t), ToVariable(y_t))
     test_loader = Data.DataLoader(dataset=test_dataset,
                                   batch_size=testlen,
                                   shuffle=False,
                                   drop_last=True)
+
+    print('Training Loader Num:' ,len(loader) ,'Testing Loader Num:',len(test_loader))
 
     # LOSS 计算
     rloss = []
@@ -334,12 +337,7 @@ def main(NEUNUM=16, NLAYER=4, testlen=1000, num_epochs=10000, caseN=9999):
     running_loss = 0.0
     # 使用VISDOM 进行绘图
     vis = visdom.Visdom(env=visdomenv, port=port)
-    vis.text(
-        "NNumber:{}, TestLen:{}, Epochs:{}, Nlayer:{}, paranum:{}".format(NEUNUM, testlen,
-                                                                          num_epochs,
-                                                                          NLAYER,
-                                                                          mparanum),
-        win='Training set')
+
 
     # 开始训练
     #    _ = input('Press any key to continue.......')
@@ -369,7 +367,7 @@ def main(NEUNUM=16, NLAYER=4, testlen=1000, num_epochs=10000, caseN=9999):
                      win='Trainamp',
                      opts=dict(
                          legend=['trueDat', 'predDat'],
-                         title='trueDat'
+                         title='Training Verification'
                      ))
 
             # 反向传播求梯度
@@ -392,21 +390,21 @@ def main(NEUNUM=16, NLAYER=4, testlen=1000, num_epochs=10000, caseN=9999):
                 h_state = model.init_hidden()
                 predDat, _ = model(inp_t, h_state)
                 predDat = predDat.cpu()
+                # 测试绘图
+                vis.line(np.column_stack((outs_t, predDat)), win='trueDat',
+                         opts=dict(
+                             legend=['trueDat', 'predDat'],
+                             title='Testing Verification'
+                         ))
 
             # 测试误差
             Testloss0 = loss_function(outs_t, predDat).item()
             Testloss += Testloss0
 
-        # 绘制最后一步的测试
-        vis.line(np.column_stack((outs_t, predDat)), win='trueDat',
-                 opts=dict(
-                     legend=['trueDat', 'predDat'],
-                     title='trueDat'
-                 ))
 
         Testloss = Testloss / testset_num
 
-        # 计算轨道谱
+        # 计算轨道谱，就拿最后的算
         f = np.linspace(0, 2, len(predDat))
         Pxx = 2 * abs(np.fft.fft(predDat)) ** 2 / (4 * len(predDat))
         f0 = np.linspace(0, 2, len(outs_t))
@@ -422,18 +420,19 @@ def main(NEUNUM=16, NLAYER=4, testlen=1000, num_epochs=10000, caseN=9999):
 
         rloss.append(running_loss)
         Tloss_list.append(Testloss)
-
         vis.line(np.column_stack((rloss, Tloss_list)), win='model Loss',
                  opts=dict(
                      legend=['Training Loss', 'Test Loss'],
                      title='Loss'
                  ))
+        # 输出epoch信息
+        print('\rEpoch[{}/{}], loss:{:.6f}， Tloss:{:.6f}'.format(epoch, num_epochs,
+                                                                  running_loss, Testloss),
+              end='')
 
-        print(' Epoch[{}/{}], loss:{:.6f}， Tloss:{:.6f}'.format(epoch, num_epochs,
-                                                                running_loss, Testloss))
-        vis.text(' Epoch[{}/{}], loss:{:.6f}， Tloss:{:.6f}'.format(epoch, num_epochs,
-                                                                   running_loss,
-                                                                   Testloss),
+        # 输出epoch信息，visdom 模型信息
+        vis.text('NNumber:{}\nTestLen:{}\nEpochs:{}\nNlayer:{}\nparanum:{}\nEpoch[{}/{}]\nloss:{:.6f}\nTloss:{:.6f}'\
+                 .format(NEUNUM,testlen,num_epochs,NLAYER,mparanum,epoch,num_epochs,running_loss,Testloss),
                  win='Training Message')
 
         # 保存模型参数
@@ -459,18 +458,19 @@ def main(NEUNUM=16, NLAYER=4, testlen=1000, num_epochs=10000, caseN=9999):
             print('Loss limit achived!')
             break
 
-    # 最终测试，对比部分可以删除
-    predDat = model(ToVariable(x[-2 * testlen:]).to(device)).data.cpu()
-    predDat = np.array(predDat)
-    trueDat = y[-2 * testlen:]
-    fig = plt.figure()
-    plt.plot(trueDat, label='Turedata')
-    plt.plot(predDat, label='Predict', alpha=0.4)
-    plt.legend()
-    plt.show()
-    # 保存至EXCEL
+    # # 最终测试，对比部分可以删除
+    # predDat = model(ToVariable(x[-2 * testlen:]).to(device)).data.cpu()
+    # predDat = np.array(predDat)
+    # trueDat = y[-2 * testlen:]
+    # fig = plt.figure()
+    # plt.plot(trueDat, label='Turedata')
+    # plt.plot(predDat, label='Predict', alpha=0.4)
+    # plt.legend()
+    # plt.show()
+
+    ## 保存至EXCEL
     # save2excel([trueDat, predDat], xlname='Pred_Truth2.xls')
-    save2excel([trueDat, predDat], xlname='Final_lstm_TestData0916-CASE%d.xls' % caseN)
+    # save2excel([trueDat, predDat], xlname='Final_lstm_TestData0916-CASE%d.xls' % caseN)
 
 
 if __name__ == '__main__':
@@ -482,14 +482,14 @@ if __name__ == '__main__':
 
     for i in range(1, nrows):
         paramC = sheet2.row_values(i)
-        # try:
-        print('Case ', i, '/', nrows - 1, '\n Name: ', paramC[4])
-        main(NEUNUM=int(paramC[0]),
-             NLAYER=int(paramC[1]),
-             testlen=int(paramC[2]),
-             num_epochs=int(paramC[3]),
-             caseN=int(paramC[4]))
-        torch.cuda.empty_cache()
-        # except Exception as err:
-        #     print('!!! Case Error')
-        #     print(err)
+        try:
+            print('Case ', i, '/', nrows - 1, '\n Name: ', paramC[4])
+            main(NEUNUM=int(paramC[0]),
+                 NLAYER=int(paramC[1]),
+                 testlen=int(paramC[2]),
+                 num_epochs=int(paramC[3]),
+                 caseN=int(paramC[4]))
+            torch.cuda.empty_cache()
+        except Exception as err:
+            print('!!! Case Error')
+            print(err)
