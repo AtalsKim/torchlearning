@@ -44,6 +44,9 @@ import tkinter as tk
 import tkinter.filedialog
 import sys
 import visdom
+import torch.utils.data as Data
+
+
 
 global device
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -216,11 +219,11 @@ class LSTMpred(nn.Module):
         self.hidden_dim = hidden_dim
         self.num_layer = num_layer
         self.batchsize = batchsize
-        # self.hidden = self.init_hidden()
+        self.hidden = self.init_hidden()
         # 数据归一化操作
         # self.bn1 = nn.BatchNorm1d(num_features=320)
         # 增加DROPout 避免过拟合
-        self.lstm = nn.LSTM(input_size, hidden_dim, num_layer, dropout=0.5)
+        self.lstm = nn.LSTM(input_size, hidden_dim, num_layer, dropout=0.2)
         # outfeature = 1
         self.hidden2out = nn.Linear(self.hidden_dim, 1)
 
@@ -241,19 +244,27 @@ class LSTMpred(nn.Module):
         # seq =1  batch 1 vec 200
 
         # vecinput 行数据的个数
+        # seq = 1组里头有多少数据，batchsize 喂多少组， input维数
         # input >>> [seq_len, batchsize, input_size]
         # out >>> [seq_len, bathchsize, hiddenlayernum]
         # h,c >>> [层数，batchsize, hiddensize]
         lstm_out, self.hidden = self.lstm(
-            seq.view(int(len(seq) / self.batchsize), self.batchsize, 1), self.hidden)
+            seq.view(-1, self.batchsize, 1), self.hidden)
         # 是不是多对一的话留下最后结果
         # outdat = self.hidden2out(lstm_out[-1].view(self.batchsize, -1))
         # return outdat.view(-1)
-        outdat = self.hidden2out(lstm_out.view(len(seq), -1))
+
+        # 改成线性层输出形式
+        s, b, h = lstm_out.shape
+        x = lstm_out.view(s*b, h)
+        outdat = self.hidden2out(x)
+        # outdat = self.hidden2out(lstm_out.view(len(seq), -1))
         return outdat
 
 
 def main(NEUNUM = 16,NLAYER = 4,testlen = 1000,num_epochs = 10000,caseN = 9999):
+
+
     TESTMOD = False
     LOADPKL = False
     # batchsize
@@ -268,26 +279,39 @@ def main(NEUNUM = 16,NLAYER = 4,testlen = 1000,num_epochs = 10000,caseN = 9999):
     if LOADPKL:
         model = load_net_state(1, 1)
     else:
-        model = LSTMpred(1, NEUNUM, testlen, NLAYER).to(device)
+        minibatch = 1
+        model = LSTMpred(1, NEUNUM, minibatch, NLAYER).to(device)
+
     # optimizer = optim.SGD(model.parameters(), lr=0.005, weight_decay=0.01)
+
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     loss_function = nn.MSELoss()
     mparanum = print_model_parm_nums(model)
 
-    # 数据读取
-    xlpath = r'Prep_BJ_GJC_W2014010602.xlsx'
-    x, y = loaddata(xlpath, length=80000, start=1)
+    # # 数据读取
+    # xlpath = r'Prep_BJ_GJC_W2014010602.xlsx'
+    # 测试
+    xlpath = r'Prep_BJ_GJC_W2014010602sine.xlsx'
+    loadlen = 5000
+    x, y = loaddata(xlpath, length=loadlen, start=1)
+
+    # 原始
     trainlen = round(len(x) * 0.8)
     dat = trainDataGen(x[:trainlen], y[:trainlen], testlen, step=step)
     testdata = trainDataGen(x[trainlen:], y[trainlen:], testlen, step=step)
-    # 模型计算总参数输出
+
+    # 使用dataloader
+    torch_dataset = Data.TensorDataset(ToVariable(x), ToVariable(y))
+    loader = Data.DataLoader(dataset=torch_dataset,
+                             batch_size=testlen,
+                             shuffle=True,
+                             drop_last=True)
+
+    # LOSS 计算
     rloss = []
     Tloss_list = []
     print(
-        "NNumber:{}, TestLen:{}, Epochs:{}, Nlayer:{}, paranum:{}".format(NEUNUM, testlen,
-                                                                          num_epochs,
-                                                                          NLAYER,
-                                                                          mparanum))
+        "NNumber:{}, TestLen:{}, Epochs:{}, Nlayer:{}, paranum:{}".format(NEUNUM, testlen,num_epochs,NLAYER,mparanum))
 
     # 测试模块， 会假死
     if TESTMOD:
@@ -299,17 +323,11 @@ def main(NEUNUM = 16,NLAYER = 4,testlen = 1000,num_epochs = 10000,caseN = 9999):
         save2excel([trueDat, predDat], xlname='Pred_Truth2.xls')
         quit()
 
-    # seqn, feature1,
-    # batch 一次送多少个数据
-
     running_loss = 0.0
     # 使用VISDOM 进行绘图
     vis = visdom.Visdom(env=visdomenv, port=port)
     vis.text(
-        "NNumber:{}, TestLen:{}, Epochs:{}, Nlayer:{}, paranum:{}".format(NEUNUM, testlen,
-                                                                          num_epochs,
-                                                                          NLAYER,
-                                                                          mparanum),
+        "NNumber:{}, TestLen:{}, Epochs:{}, Nlayer:{}, paranum:{}".format(NEUNUM, testlen,num_epochs,NLAYER,mparanum),
         win='Training set')
 
     # 开始训练
@@ -317,38 +335,31 @@ def main(NEUNUM = 16,NLAYER = 4,testlen = 1000,num_epochs = 10000,caseN = 9999):
     print("Epoch Start...")
     for epoch in range(num_epochs):
 
-        #        # 感觉目标应该是psd的相差较小
-        #        seq = 2 * abs(np.fft.fft(x)) ** 2 / (len(x))
-        #        outs = 2 * abs(np.fft.fft(y)) ** 2 / (len(y))
+        eval_loss = 0
+        for seq, outs in loader:
 
-        seq = x
-        outs = y
-        seq = ToVariable(seq).to(device)
-        seq = seq.view(len(seq), 1)
-        outs = ToVariable(outs).to(device)
-        outs = outs.view(len(outs), 1)
-        # 由于输入的时array 改为 a x 1 的格式
-        # 修改完之后有明显降低
-        # outs = torch.from_numpy(np.array([outs]))
+            seq = seq.view(len(seq), 1).to(device)
+            outs = outs.view(len(outs), 1).to(device)
+            # 清除网络状态
+            optimizer.zero_grad()
+            # 重新初始化隐藏层数据
+            model.hidden = model.init_hidden()
 
-        # 清除网络状态
-        model.zero_grad()
-        # optimizer.zero_grad()
-        # 重新初始化隐藏层数据
-        model.hidden = model.init_hidden()
-        modout = model(seq).to(device)
+            modout = model(seq).to(device)
+            loss = loss_function(modout, outs)
+            # 反向传播求梯度
+            # loss.backward(retain_graph=True)
+            loss.backward()
+            # 更新梯度
+            optimizer.step()
+            # 放里头一直更新
+            # statistics
+            # running_loss += loss.item()
 
-        loss = loss_function(modout, outs)
-        # 反向传播求梯度
-        loss.backward()
-        # 更新参数
-        optimizer.step()
-        # 放里头一直更新
-        # statistics
-        # running_loss += loss.item()
-        running_loss = loss.item()
-        # 临时绘图
+            eval_loss += loss.item()
 
+
+        running_loss = eval_loss/len(loader)
         # 测试区段数据
         Testloss = 0
         # 测试集长度
@@ -382,7 +393,6 @@ def main(NEUNUM = 16,NLAYER = 4,testlen = 1000,num_epochs = 10000,caseN = 9999):
         Pxx = 2 * abs(np.fft.fft(predDat)) ** 2 / (4 * len(predDat))
         f0 = np.linspace(0, 2, len(testdata[0][0]))
         Pxx0 = 2 * abs(np.fft.fft(testdata[0][0])) ** 2 / (4 * len(testdata[0][0]))
-
         vis.line(X=np.column_stack((f, f0)),
                  Y=np.column_stack((Pxx.reshape(-1), Pxx0.reshape(-1))), win='PSD',
                  opts=dict(
@@ -391,10 +401,6 @@ def main(NEUNUM = 16,NLAYER = 4,testlen = 1000,num_epochs = 10000,caseN = 9999):
                      ytype='log',
                      xtype='log'
                  ))
-        #        np.array(Pxx.reshape(-1), f)
-
-        # # 简单绘图
-        # # simplot(trueDat, predDat)
 
         rloss.append(running_loss)
         Tloss_list.append(Testloss)
@@ -405,12 +411,8 @@ def main(NEUNUM = 16,NLAYER = 4,testlen = 1000,num_epochs = 10000,caseN = 9999):
                      title='Loss'
                  ))
 
-#        print(' Epoch[{}/{}], loss:{:.6f}， Tloss:{:.6f}'.format(epoch, num_epochs,
-#                                                                running_loss, Testloss))
-        vis.text(' Epoch[{}/{}], loss:{:.6f}， Tloss:{:.6f}'.format(epoch, num_epochs,
-                                                                   running_loss,
-                                                                   Testloss),
-                 win='Training Message')
+        print(' Epoch[{}/{}], loss:{:.6f}， Tloss:{:.6f}'.format(epoch, num_epochs,running_loss, Testloss))
+        vis.text(' Epoch[{}/{}], loss:{:.6f}， Tloss:{:.6f}'.format(epoch, num_epochs,running_loss,Testloss),win='Training Message')
 
         # # 计算与测试集的误差
         # predDat = model(ToVariable(x[-testlen:]).to(device)).data.cpu()
@@ -441,7 +443,7 @@ def main(NEUNUM = 16,NLAYER = 4,testlen = 1000,num_epochs = 10000,caseN = 9999):
             print('Loss limit achived!')
             break
 
-    # 最终测试
+    # 最终测试，对比部分可以删除
     predDat = model(ToVariable(x[-2 * testlen:]).to(device)).data.cpu()
     predDat = np.array(predDat)
     trueDat = y[-2 * testlen:]

@@ -22,8 +22,11 @@ import xlrd
 import xlwt
 import os
 import sys
-import  matlab.engine
+import matlab.engine
 import scipy.io as scio
+import re
+
+
 
 global device
 # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -295,9 +298,10 @@ if __name__ == '__main__':
     folder = os.path.split(xlpath)[0]+'/pkl/'
     pkllist = os.listdir(folder)
     pklist = [i for i in pkllist if i.endswith(".pkl")]
-    batchsize = int(input('Batchsize:'))
+    # batchsize = int(input('Batchsize:'))
     for i in pklist:
         print("============================")
+        batchsize = int(re.findall(r'.*_Len(.*?)_', i)[0])
         pklpath = os.path.join(folder,i)
         print(pklpath)
         try:
